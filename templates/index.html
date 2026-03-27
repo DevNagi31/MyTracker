@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MyTracker">
+    <meta name="theme-color" content="#0a0a0a">
+    <link rel="manifest" href="/static/manifest.json">
+    <title>MyTracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body data-theme="dark">
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon"><i data-lucide="target"></i></div>
+                <h1>MyTracker</h1>
+            </div>
+            <nav>
+                <button class="nav-btn active" data-view="today" onclick="switchView('today')">
+                    <i data-lucide="sun" class="nav-icon"></i> <span>Today</span>
+                </button>
+                <button class="nav-btn" data-view="all" onclick="switchView('all')">
+                    <i data-lucide="list" class="nav-icon"></i> <span>All Goals</span>
+                </button>
+                <button class="nav-btn" data-view="calendar" onclick="switchView('calendar')">
+                    <i data-lucide="calendar" class="nav-icon"></i> <span>Calendar</span>
+                </button>
+                <button class="nav-btn" data-view="stats" onclick="switchView('stats')">
+                    <i data-lucide="bar-chart-3" class="nav-icon"></i> <span>Stats</span>
+                </button>
+                <button class="nav-btn" data-view="journal" onclick="switchView('journal')">
+                    <i data-lucide="notebook-pen" class="nav-icon"></i> <span>Journal</span>
+                </button>
+                <button class="nav-btn" data-view="agent" onclick="switchView('agent')">
+                    <i data-lucide="bot" class="nav-icon"></i> <span>AI Coach</span>
+                </button>
+                <button class="nav-btn" data-view="settings" onclick="switchView('settings')">
+                    <i data-lucide="settings" class="nav-icon"></i> <span>Settings</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="streak-badge" id="streak-badge">
+                    <i data-lucide="flame" style="width:14px;height:14px"></i>
+                    <span id="streak-count">0</span> day streak
+                </div>
+                <div class="stats-mini" id="stats-mini">
+                    <div class="stat-mini">
+                        <span class="stat-num" id="stat-total">0</span>
+                        <span class="stat-label">Total</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-num" id="stat-done">0</span>
+                        <span class="stat-label">Done</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-num" id="stat-pending">0</span>
+                        <span class="stat-label">Left</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content">
+
+            <!-- TODAY -->
+            <section id="view-today" class="view active">
+                <div class="view-header">
+                    <div>
+                        <h2>Today</h2>
+                        <p class="date-display" id="today-date"></p>
+                    </div>
+                    <div class="header-actions">
+                        <div class="search-box">
+                            <i data-lucide="search" style="width:14px;height:14px"></i>
+                            <input type="text" id="search-input" placeholder="Search goals..." oninput="handleSearch(this.value)">
+                        </div>
+                        <button class="btn-primary" onclick="openModal()"><i data-lucide="plus" style="width:14px;height:14px"></i> Add Goal</button>
+                    </div>
+                </div>
+                <!-- Overdue Alert -->
+                <div class="overdue-section" id="overdue-section" style="display:none">
+                    <div class="overdue-header">
+                        <i data-lucide="alert-triangle" style="width:16px;height:16px"></i>
+                        <span>Overdue</span>
+                    </div>
+                    <div class="goals-list" id="overdue-goals"></div>
+                </div>
+                <div class="goals-list" id="today-goals"></div>
+            </section>
+
+            <!-- ALL GOALS -->
+            <section id="view-all" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>All Goals</h2>
+                        <p class="subtitle">Drag to reorder priorities</p>
+                    </div>
+                    <div class="header-actions">
+                        <select id="filter-category" onchange="loadAllGoals()">
+                            <option value="">All Categories</option>
+                            <option value="Health">Health</option>
+                            <option value="Work">Work</option>
+                            <option value="Learning">Learning</option>
+                            <option value="Fitness">Fitness</option>
+                            <option value="Personal">Personal</option>
+                            <option value="Finance">Finance</option>
+                            <option value="General">General</option>
+                        </select>
+                        <select id="filter-status" onchange="loadAllGoals()">
+                            <option value="">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                        <select id="filter-priority" onchange="loadAllGoals()">
+                            <option value="">All Priority</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                        <button class="btn-primary" onclick="openModal()"><i data-lucide="plus" style="width:14px;height:14px"></i> Add Goal</button>
+                    </div>
+                </div>
+                <div class="goals-list" id="all-goals"></div>
+            </section>
+
+            <!-- CALENDAR -->
+            <section id="view-calendar" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>Calendar</h2>
+                        <p class="subtitle">Your schedule at a glance</p>
+                    </div>
+                    <button class="btn-primary" onclick="openModal()"><i data-lucide="plus" style="width:14px;height:14px"></i> Add Goal</button>
+                </div>
+                <div class="calendar-container">
+                    <div class="calendar-nav">
+                        <button class="cal-nav-btn" onclick="changeMonth(-1)"><i data-lucide="chevron-left" style="width:16px;height:16px"></i></button>
+                        <h3 id="calendar-month-label"></h3>
+                        <button class="cal-nav-btn" onclick="changeMonth(1)"><i data-lucide="chevron-right" style="width:16px;height:16px"></i></button>
+                    </div>
+                    <div class="calendar-grid" id="calendar-grid"></div>
+                </div>
+                <div class="goals-list" id="calendar-goals"></div>
+            </section>
+
+            <!-- STATS -->
+            <section id="view-stats" class="view">
+                <div class="view-header">
+                    <h2>Stats & Progress</h2>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-card-icon"><i data-lucide="target" style="width:20px;height:20px"></i></div>
+                        <div class="stat-card-num" id="sc-total">0</div>
+                        <div class="stat-card-label">Total Goals</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-icon"><i data-lucide="check-circle" style="width:20px;height:20px"></i></div>
+                        <div class="stat-card-num" id="sc-done">0</div>
+                        <div class="stat-card-label">Completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-icon"><i data-lucide="flame" style="width:20px;height:20px"></i></div>
+                        <div class="stat-card-num" id="sc-streak">0</div>
+                        <div class="stat-card-label">Day Streak</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-icon"><i data-lucide="percent" style="width:20px;height:20px"></i></div>
+                        <div class="stat-card-num" id="sc-rate">0%</div>
+                        <div class="stat-card-label">Completion Rate</div>
+                    </div>
+                </div>
+
+                <!-- Atomic Habits 1% Graph -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>The Power of 1% Daily</h3>
+                        <p class="subtitle">Your weekly completion rate vs. compound 1% improvement</p>
+                    </div>
+                    <canvas id="atomic-chart" height="280"></canvas>
+                </div>
+
+                <!-- Category Breakdown -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Category Breakdown</h3>
+                    </div>
+                    <canvas id="category-chart" height="200"></canvas>
+                </div>
+
+                <!-- Heatmap -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Activity Heatmap</h3>
+                        <p class="subtitle">Your consistency over the past year</p>
+                    </div>
+                    <div class="heatmap-container" id="heatmap"></div>
+                </div>
+            </section>
+
+            <!-- JOURNAL -->
+            <section id="view-journal" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>Daily Journal</h2>
+                        <p class="subtitle">Reflect on your day</p>
+                    </div>
+                    <div class="journal-date-nav">
+                        <button class="cal-nav-btn" onclick="changeJournalDate(-1)"><i data-lucide="chevron-left" style="width:16px;height:16px"></i></button>
+                        <span id="journal-date-label"></span>
+                        <button class="cal-nav-btn" onclick="changeJournalDate(1)"><i data-lucide="chevron-right" style="width:16px;height:16px"></i></button>
+                    </div>
+                </div>
+                <div class="journal-card">
+                    <div class="mood-selector">
+                        <span class="mood-label">How are you feeling?</span>
+                        <div class="mood-options" id="mood-options">
+                            <button class="mood-btn" data-mood="1" onclick="setMood(1)">1</button>
+                            <button class="mood-btn" data-mood="2" onclick="setMood(2)">2</button>
+                            <button class="mood-btn active" data-mood="3" onclick="setMood(3)">3</button>
+                            <button class="mood-btn" data-mood="4" onclick="setMood(4)">4</button>
+                            <button class="mood-btn" data-mood="5" onclick="setMood(5)">5</button>
+                        </div>
+                    </div>
+                    <textarea id="journal-content" placeholder="What's on your mind today? What did you accomplish? What will you improve tomorrow?" rows="12" oninput="autoSaveNote()"></textarea>
+                    <div class="journal-footer">
+                        <span class="save-status" id="save-status">Saved</span>
+                    </div>
+                </div>
+                <div class="journal-goals">
+                    <h3>Today's Goals Progress</h3>
+                    <div class="goals-list" id="journal-goals-list"></div>
+                </div>
+            </section>
+
+            <!-- AI COACH -->
+            <section id="view-agent" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>AI Coach</h2>
+                        <p class="subtitle">Your personal accountability partner</p>
+                    </div>
+                    <button class="btn-secondary" onclick="loadAgent()"><i data-lucide="refresh-cw" style="width:14px;height:14px"></i> Refresh</button>
+                </div>
+                <div class="agent-container" id="agent-container"></div>
+            </section>
+
+            <!-- SETTINGS -->
+            <section id="view-settings" class="view">
+                <div class="view-header">
+                    <h2>Settings</h2>
+                </div>
+                <div class="settings-card">
+                    <h3><i data-lucide="moon" style="width:16px;height:16px"></i> Appearance</h3>
+                    <p>Switch between dark and light mode</p>
+                    <div class="theme-toggle">
+                        <button class="theme-btn active" id="theme-dark" onclick="setTheme('dark')">Dark</button>
+                        <button class="theme-btn" id="theme-light" onclick="setTheme('light')">Light</button>
+                    </div>
+                </div>
+                <div class="settings-card">
+                    <h3><i data-lucide="bell" style="width:16px;height:16px"></i> Notifications</h3>
+                    <p>Get macOS notifications when goals are due</p>
+                    <button class="btn-secondary" onclick="testNotification()">Test Notification</button>
+                </div>
+                <div class="settings-card">
+                    <h3><i data-lucide="calendar-check" style="width:16px;height:16px"></i> Calendar Sync</h3>
+                    <p>Goals sync automatically to a "MyTracker" calendar in macOS Calendar</p>
+                </div>
+                <div class="settings-card">
+                    <h3><i data-lucide="download" style="width:16px;height:16px"></i> Export Data</h3>
+                    <p>Download all your goals and progress</p>
+                    <a href="/api/export/csv" class="btn-secondary" style="display:inline-block;text-decoration:none">Export CSV</a>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Mobile Bottom Nav -->
+    <nav class="mobile-nav">
+        <button class="mobile-nav-btn active" data-view="today" onclick="switchView('today')">
+            <i data-lucide="sun"></i><span>Today</span>
+        </button>
+        <button class="mobile-nav-btn" data-view="all" onclick="switchView('all')">
+            <i data-lucide="list"></i><span>All</span>
+        </button>
+        <button class="mobile-nav-btn" data-view="stats" onclick="switchView('stats')">
+            <i data-lucide="bar-chart-3"></i><span>Stats</span>
+        </button>
+        <button class="mobile-nav-btn" data-view="agent" onclick="switchView('agent')">
+            <i data-lucide="bot"></i><span>Coach</span>
+        </button>
+        <button class="mobile-nav-btn" data-view="settings" onclick="switchView('settings')">
+            <i data-lucide="settings"></i><span>More</span>
+        </button>
+    </nav>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modal-title">Add New Goal</h3>
+                <button class="modal-close" onclick="closeModal()"><i data-lucide="x" style="width:16px;height:16px"></i></button>
+            </div>
+            <form id="goal-form" onsubmit="saveGoal(event)">
+                <input type="hidden" id="goal-id">
+                <div class="form-group">
+                    <label for="goal-title">Title</label>
+                    <input type="text" id="goal-title" placeholder="What do you want to achieve?" required>
+                </div>
+                <div class="form-group">
+                    <label for="goal-desc">Description</label>
+                    <textarea id="goal-desc" placeholder="Details..." rows="2"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="goal-category">Category</label>
+                        <select id="goal-category">
+                            <option value="General">General</option>
+                            <option value="Health">Health</option>
+                            <option value="Work">Work</option>
+                            <option value="Learning">Learning</option>
+                            <option value="Fitness">Fitness</option>
+                            <option value="Personal">Personal</option>
+                            <option value="Finance">Finance</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="goal-priority">Priority</label>
+                        <select id="goal-priority">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="goal-date">Due Date</label>
+                        <input type="date" id="goal-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="goal-time">Due Time</label>
+                        <input type="time" id="goal-time">
+                    </div>
+                    <div class="form-group">
+                        <label for="goal-recurring">Repeat</label>
+                        <select id="goal-recurring">
+                            <option value="none">None</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="goal-progress-target">Progress Target</label>
+                        <input type="number" id="goal-progress-target" value="100" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="goal-reminder" checked>
+                            Enable reminders
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="goal-email">Reminder Email (optional)</label>
+                    <input type="email" id="goal-email" placeholder="your@email.com">
+                </div>
+                <!-- Subtasks -->
+                <div class="form-group">
+                    <label>Sub-tasks</label>
+                    <div id="subtasks-list" class="subtasks-input-list"></div>
+                    <div class="subtask-add">
+                        <input type="text" id="subtask-input" placeholder="Add a sub-task...">
+                        <button type="button" class="btn-small" onclick="addSubtaskInput()"><i data-lucide="plus" style="width:12px;height:12px"></i></button>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Goal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+</html>
