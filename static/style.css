@@ -566,6 +566,68 @@ nav { display: flex; flex-direction: column; gap: 1px; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
 
+/* ── Auth Pages ── */
+.auth-page {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px;
+}
+.auth-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px; width: 400px; max-width: 100%;
+}
+.auth-logo {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.auth-logo .logo-icon {
+    width: 36px; height: 36px;
+    background: var(--accent); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--bg);
+}
+.auth-logo .logo-icon svg { width: 18px; height: 18px; }
+.auth-logo h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+.auth-subtitle {
+    color: var(--text-muted); font-size: 13px; margin-bottom: 28px; line-height: 1.5;
+}
+.auth-card .form-group { margin-bottom: 16px; }
+.auth-btn {
+    width: 100%; justify-content: center; padding: 12px;
+    font-size: 14px; margin-top: 4px;
+}
+.auth-error {
+    color: var(--overdue); font-size: 13px; min-height: 20px;
+    margin-bottom: 4px;
+}
+.auth-switch {
+    text-align: center; margin-top: 20px;
+    font-size: 13px; color: var(--text-muted);
+}
+.auth-switch a {
+    color: var(--text); font-weight: 600; text-decoration: none;
+}
+.auth-switch a:hover { text-decoration: underline; }
+
+/* ── User Menu ── */
+.user-menu {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; margin-bottom: 12px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-dim);
+}
+.user-menu-name {
+    flex: 1; font-size: 12px; font-weight: 600;
+    color: var(--text-secondary); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+.user-menu-icon { color: var(--text-muted); flex-shrink: 0; }
+.logout-btn {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; padding: 4px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    transition: var(--tr);
+}
+.logout-btn:hover { color: var(--overdue); background: var(--overdue-bg); }
+
 ::selection { background: var(--accent-mid); }
 ::placeholder { color: var(--text-muted); opacity: 0.6; }
 

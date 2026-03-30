@@ -21,6 +21,13 @@
                 <div class="logo-icon"><i data-lucide="target"></i></div>
                 <h1>MyTracker</h1>
             </div>
+            <div class="user-menu">
+                <i data-lucide="user" class="user-menu-icon" style="width:14px;height:14px"></i>
+                <span class="user-menu-name">{{ username }}</span>
+                <button class="logout-btn" onclick="logout()" title="Log out">
+                    <i data-lucide="log-out" style="width:14px;height:14px"></i>
+                </button>
+            </div>
             <nav>
                 <button class="nav-btn active" data-view="today" onclick="switchView('today')">
                     <i data-lucide="sun" class="nav-icon"></i> <span>Today</span>

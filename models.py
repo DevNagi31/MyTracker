@@ -1,6 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime, timedelta
+from werkzeug.security import generate_password_hash, check_password_hash
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "tracker.db")
 
@@ -16,8 +17,16 @@ def get_db():
 def init_db():
     conn = get_db()
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
+
         CREATE TABLE IF NOT EXISTS goals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             title TEXT NOT NULL,
             description TEXT DEFAULT '',
             category TEXT DEFAULT 'General',
@@ -32,7 +41,8 @@ def init_db():
             recurring TEXT DEFAULT 'none',
             sort_order INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now','localtime')),
-            completed_at TEXT
+            completed_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS subtasks (
@@ -46,34 +56,73 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS daily_notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT UNIQUE NOT NULL,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
             content TEXT DEFAULT '',
             mood INTEGER DEFAULT 3,
-            created_at TEXT DEFAULT (datetime('now','localtime'))
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(user_id, date),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS completion_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             goal_id INTEGER,
             date TEXT NOT NULL,
-            completed_at TEXT DEFAULT (datetime('now','localtime'))
+            completed_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
     """)
     conn.commit()
     conn.close()
 
 
+# ── Auth ──
+
+def create_user(username, password):
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+            (username, generate_password_hash(password)),
+        )
+        conn.commit()
+        user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.close()
+        return user_id
+    except sqlite3.IntegrityError:
+        conn.close()
+        return None
+
+
+def authenticate_user(username, password):
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    if user and check_password_hash(user["password_hash"], password):
+        return dict(user)
+    return None
+
+
+def get_user(user_id):
+    conn = get_db()
+    user = conn.execute("SELECT id, username, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+    conn.close()
+    return dict(user) if user else None
+
+
 # ── Goals ──
 
-def add_goal(title, description, category, priority, due_date, due_time,
+def add_goal(user_id, title, description, category, priority, due_date, due_time,
              reminder_enabled, reminder_email, progress_target, recurring):
     conn = get_db()
-    max_order = conn.execute("SELECT COALESCE(MAX(sort_order),0) FROM goals").fetchone()[0]
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order),0) FROM goals WHERE user_id=?", (user_id,)).fetchone()[0]
     conn.execute(
-        """INSERT INTO goals (title, description, category, priority, due_date, due_time,
+        """INSERT INTO goals (user_id, title, description, category, priority, due_date, due_time,
            reminder_enabled, reminder_email, progress_target, recurring, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (title, description, category, priority, due_date, due_time,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, title, description, category, priority, due_date, due_time,
          int(reminder_enabled), reminder_email, progress_target, recurring, max_order + 1),
     )
     conn.commit()
@@ -82,7 +131,7 @@ def add_goal(title, description, category, priority, due_date, due_time,
     return goal_id
 
 
-def update_goal(goal_id, **kwargs):
+def update_goal(user_id, goal_id, **kwargs):
     conn = get_db()
     fields = []
     values = []
@@ -91,60 +140,60 @@ def update_goal(goal_id, **kwargs):
             val = int(val)
         fields.append(f"{key}=?")
         values.append(val)
-    values.append(goal_id)
-    conn.execute(f"UPDATE goals SET {','.join(fields)} WHERE id=?", values)
+    values.extend([goal_id, user_id])
+    conn.execute(f"UPDATE goals SET {','.join(fields)} WHERE id=? AND user_id=?", values)
     conn.commit()
     conn.close()
 
 
-def toggle_complete(goal_id):
+def toggle_complete(user_id, goal_id):
     conn = get_db()
-    goal = conn.execute("SELECT completed FROM goals WHERE id=?", (goal_id,)).fetchone()
+    goal = conn.execute("SELECT completed FROM goals WHERE id=? AND user_id=?", (goal_id, user_id)).fetchone()
     if goal:
         new_status = 0 if goal["completed"] else 1
         completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if new_status else None
-        conn.execute("UPDATE goals SET completed=?, completed_at=?, progress=? WHERE id=?",
-                      (new_status, completed_at, 100 if new_status else 0, goal_id))
+        conn.execute("UPDATE goals SET completed=?, completed_at=?, progress=? WHERE id=? AND user_id=?",
+                      (new_status, completed_at, 100 if new_status else 0, goal_id, user_id))
         if new_status:
             today = datetime.now().strftime("%Y-%m-%d")
-            conn.execute("INSERT INTO completion_log (goal_id, date) VALUES (?, ?)", (goal_id, today))
+            conn.execute("INSERT INTO completion_log (user_id, goal_id, date) VALUES (?, ?, ?)", (user_id, goal_id, today))
         conn.commit()
     conn.close()
 
 
-def update_progress(goal_id, progress):
+def update_progress(user_id, goal_id, progress):
     conn = get_db()
-    goal = conn.execute("SELECT progress_target FROM goals WHERE id=?", (goal_id,)).fetchone()
+    goal = conn.execute("SELECT progress_target FROM goals WHERE id=? AND user_id=?", (goal_id, user_id)).fetchone()
     if goal:
         completed = 1 if progress >= goal["progress_target"] else 0
         completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if completed else None
-        conn.execute("UPDATE goals SET progress=?, completed=?, completed_at=? WHERE id=?",
-                      (progress, completed, completed_at, goal_id))
+        conn.execute("UPDATE goals SET progress=?, completed=?, completed_at=? WHERE id=? AND user_id=?",
+                      (progress, completed, completed_at, goal_id, user_id))
         if completed:
             today = datetime.now().strftime("%Y-%m-%d")
-            conn.execute("INSERT INTO completion_log (goal_id, date) VALUES (?, ?)", (goal_id, today))
+            conn.execute("INSERT INTO completion_log (user_id, goal_id, date) VALUES (?, ?, ?)", (user_id, goal_id, today))
         conn.commit()
     conn.close()
 
 
-def reorder_goals(goal_ids):
+def reorder_goals(user_id, goal_ids):
     conn = get_db()
     for i, gid in enumerate(goal_ids):
-        conn.execute("UPDATE goals SET sort_order=? WHERE id=?", (i, gid))
+        conn.execute("UPDATE goals SET sort_order=? WHERE id=? AND user_id=?", (i, gid, user_id))
     conn.commit()
     conn.close()
 
 
-def delete_goal(goal_id):
+def delete_goal(user_id, goal_id):
     conn = get_db()
-    conn.execute("DELETE FROM goals WHERE id=?", (goal_id,))
+    conn.execute("DELETE FROM goals WHERE id=? AND user_id=?", (goal_id, user_id))
     conn.commit()
     conn.close()
 
 
-def get_all_goals():
+def get_all_goals(user_id):
     conn = get_db()
-    goals = conn.execute("SELECT * FROM goals ORDER BY sort_order ASC, due_date ASC, due_time ASC").fetchall()
+    goals = conn.execute("SELECT * FROM goals WHERE user_id=? ORDER BY sort_order ASC, due_date ASC, due_time ASC", (user_id,)).fetchall()
     result = []
     for g in goals:
         gd = dict(g)
@@ -155,10 +204,10 @@ def get_all_goals():
     return result
 
 
-def get_goals_by_date(date_str):
+def get_goals_by_date(user_id, date_str):
     conn = get_db()
     goals = conn.execute(
-        "SELECT * FROM goals WHERE due_date=? ORDER BY sort_order ASC, due_time ASC", (date_str,)
+        "SELECT * FROM goals WHERE user_id=? AND due_date=? ORDER BY sort_order ASC, due_time ASC", (user_id, date_str)
     ).fetchall()
     result = []
     for g in goals:
@@ -170,9 +219,9 @@ def get_goals_by_date(date_str):
     return result
 
 
-def get_goal(goal_id):
+def get_goal(user_id, goal_id):
     conn = get_db()
-    goal = conn.execute("SELECT * FROM goals WHERE id=?", (goal_id,)).fetchone()
+    goal = conn.execute("SELECT * FROM goals WHERE id=? AND user_id=?", (goal_id, user_id)).fetchone()
     if goal:
         gd = dict(goal)
         subs = conn.execute("SELECT * FROM subtasks WHERE goal_id=? ORDER BY sort_order", (goal_id,)).fetchall()
@@ -183,26 +232,26 @@ def get_goal(goal_id):
     return None
 
 
-def search_goals(query):
+def search_goals(user_id, query):
     conn = get_db()
     goals = conn.execute(
-        "SELECT * FROM goals WHERE title LIKE ? OR description LIKE ? ORDER BY sort_order",
-        (f"%{query}%", f"%{query}%")
+        "SELECT * FROM goals WHERE user_id=? AND (title LIKE ? OR description LIKE ?) ORDER BY sort_order",
+        (user_id, f"%{query}%", f"%{query}%")
     ).fetchall()
     conn.close()
     return [dict(g) for g in goals]
 
 
-def get_overdue_goals():
+def get_overdue_goals(user_id):
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
     current_time = now.strftime("%H:%M")
     conn = get_db()
     goals = conn.execute(
-        """SELECT * FROM goals WHERE completed=0 AND
+        """SELECT * FROM goals WHERE user_id=? AND completed=0 AND
            ((due_date < ?) OR (due_date = ? AND due_time < ? AND due_time != ''))
            ORDER BY due_date ASC""",
-        (today, today, current_time)
+        (user_id, today, today, current_time)
     ).fetchall()
     conn.close()
     return [dict(g) for g in goals]
@@ -234,69 +283,79 @@ def add_subtask(goal_id, title):
     return sub_id
 
 
-def toggle_subtask(subtask_id):
+def toggle_subtask(user_id, subtask_id):
     conn = get_db()
-    sub = conn.execute("SELECT completed FROM subtasks WHERE id=?", (subtask_id,)).fetchone()
+    sub = conn.execute(
+        """SELECT s.completed FROM subtasks s
+           JOIN goals g ON s.goal_id = g.id
+           WHERE s.id=? AND g.user_id=?""",
+        (subtask_id, user_id)
+    ).fetchone()
     if sub:
         conn.execute("UPDATE subtasks SET completed=? WHERE id=?", (0 if sub["completed"] else 1, subtask_id))
         conn.commit()
     conn.close()
 
 
-def delete_subtask(subtask_id):
+def delete_subtask(user_id, subtask_id):
     conn = get_db()
-    conn.execute("DELETE FROM subtasks WHERE id=?", (subtask_id,))
+    conn.execute(
+        """DELETE FROM subtasks WHERE id=? AND goal_id IN
+           (SELECT id FROM goals WHERE user_id=?)""",
+        (subtask_id, user_id)
+    )
     conn.commit()
     conn.close()
 
 
 # ── Daily Notes ──
 
-def save_note(date, content, mood):
+def save_note(user_id, date, content, mood):
     conn = get_db()
     conn.execute(
-        """INSERT INTO daily_notes (date, content, mood) VALUES (?, ?, ?)
-           ON CONFLICT(date) DO UPDATE SET content=excluded.content, mood=excluded.mood""",
-        (date, content, mood)
+        """INSERT INTO daily_notes (user_id, date, content, mood) VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id, date) DO UPDATE SET content=excluded.content, mood=excluded.mood""",
+        (user_id, date, content, mood)
     )
     conn.commit()
     conn.close()
 
 
-def get_note(date):
+def get_note(user_id, date):
     conn = get_db()
-    note = conn.execute("SELECT * FROM daily_notes WHERE date=?", (date,)).fetchone()
+    note = conn.execute("SELECT * FROM daily_notes WHERE user_id=? AND date=?", (user_id, date)).fetchone()
     conn.close()
     return dict(note) if note else None
 
 
-def get_all_notes():
+def get_all_notes(user_id):
     conn = get_db()
-    notes = conn.execute("SELECT * FROM daily_notes ORDER BY date DESC").fetchall()
+    notes = conn.execute("SELECT * FROM daily_notes WHERE user_id=? ORDER BY date DESC", (user_id,)).fetchall()
     conn.close()
     return [dict(n) for n in notes]
 
 
 # ── Stats ──
 
-def get_completion_stats():
+def get_completion_stats(user_id):
     conn = get_db()
     today = datetime.now()
 
     # Daily completions for last 90 days
     ninety_ago = (today - timedelta(days=90)).strftime("%Y-%m-%d")
     daily = conn.execute(
-        "SELECT date, COUNT(*) as count FROM completion_log WHERE date >= ? GROUP BY date ORDER BY date",
-        (ninety_ago,)
+        "SELECT date, COUNT(*) as count FROM completion_log WHERE user_id=? AND date >= ? GROUP BY date ORDER BY date",
+        (user_id, ninety_ago)
     ).fetchall()
 
     # Total stats
-    total = conn.execute("SELECT COUNT(*) as c FROM goals").fetchone()["c"]
-    done = conn.execute("SELECT COUNT(*) as c FROM goals WHERE completed=1").fetchone()["c"]
+    total = conn.execute("SELECT COUNT(*) as c FROM goals WHERE user_id=?", (user_id,)).fetchone()["c"]
+    done = conn.execute("SELECT COUNT(*) as c FROM goals WHERE user_id=? AND completed=1", (user_id,)).fetchone()["c"]
 
     # Category breakdown
     cats = conn.execute(
-        "SELECT category, COUNT(*) as total, SUM(completed) as done FROM goals GROUP BY category"
+        "SELECT category, COUNT(*) as total, SUM(completed) as done FROM goals WHERE user_id=? GROUP BY category",
+        (user_id,)
     ).fetchall()
 
     # Streak calculation
@@ -304,9 +363,9 @@ def get_completion_stats():
     d = today
     while True:
         ds = d.strftime("%Y-%m-%d")
-        day_goals = conn.execute("SELECT COUNT(*) as c FROM goals WHERE due_date=?", (ds,)).fetchone()["c"]
+        day_goals = conn.execute("SELECT COUNT(*) as c FROM goals WHERE user_id=? AND due_date=?", (user_id, ds)).fetchone()["c"]
         day_done = conn.execute(
-            "SELECT COUNT(*) as c FROM completion_log WHERE date=?", (ds,)
+            "SELECT COUNT(*) as c FROM completion_log WHERE user_id=? AND date=?", (user_id, ds)
         ).fetchone()["c"]
         if day_goals > 0 and day_done > 0:
             streak += 1
@@ -317,8 +376,8 @@ def get_completion_stats():
     # Heatmap data (last 365 days)
     year_ago = (today - timedelta(days=365)).strftime("%Y-%m-%d")
     heatmap = conn.execute(
-        "SELECT date, COUNT(*) as count FROM completion_log WHERE date >= ? GROUP BY date",
-        (year_ago,)
+        "SELECT date, COUNT(*) as count FROM completion_log WHERE user_id=? AND date >= ? GROUP BY date",
+        (user_id, year_ago)
     ).fetchall()
 
     # Weekly completion rates for atomic habits graph
@@ -330,10 +389,10 @@ def get_completion_stats():
         we = week_end.strftime("%Y-%m-%d")
         wl = week_start.strftime("%b %d")
         total_w = conn.execute(
-            "SELECT COUNT(*) as c FROM goals WHERE due_date BETWEEN ? AND ?", (ws, we)
+            "SELECT COUNT(*) as c FROM goals WHERE user_id=? AND due_date BETWEEN ? AND ?", (user_id, ws, we)
         ).fetchone()["c"]
         done_w = conn.execute(
-            "SELECT COUNT(*) as c FROM completion_log WHERE date BETWEEN ? AND ?", (ws, we)
+            "SELECT COUNT(*) as c FROM completion_log WHERE user_id=? AND date BETWEEN ? AND ?", (user_id, ws, we)
         ).fetchone()["c"]
         rate = round((done_w / total_w * 100) if total_w > 0 else 0)
         weeks.append({"label": wl, "rate": rate, "done": done_w, "total": total_w})
@@ -352,17 +411,16 @@ def get_completion_stats():
 
 # ── AI Agent ──
 
-def get_agent_insights():
+def get_agent_insights(user_id):
     conn = get_db()
     today = datetime.now()
     today_str = today.strftime("%Y-%m-%d")
-    current_time = today.strftime("%H:%M")
 
     insights = []
 
     # Overdue goals
     overdue = conn.execute(
-        "SELECT COUNT(*) as c FROM goals WHERE completed=0 AND due_date < ?", (today_str,)
+        "SELECT COUNT(*) as c FROM goals WHERE user_id=? AND completed=0 AND due_date < ?", (user_id, today_str)
     ).fetchone()["c"]
     if overdue > 0:
         insights.append({
@@ -372,9 +430,9 @@ def get_agent_insights():
         })
 
     # Today's progress
-    today_total = conn.execute("SELECT COUNT(*) as c FROM goals WHERE due_date=?", (today_str,)).fetchone()["c"]
+    today_total = conn.execute("SELECT COUNT(*) as c FROM goals WHERE user_id=? AND due_date=?", (user_id, today_str)).fetchone()["c"]
     today_done = conn.execute(
-        "SELECT COUNT(*) as c FROM goals WHERE due_date=? AND completed=1", (today_str,)
+        "SELECT COUNT(*) as c FROM goals WHERE user_id=? AND due_date=? AND completed=1", (user_id, today_str)
     ).fetchone()["c"]
     if today_total > 0:
         pct = round(today_done / today_total * 100)
@@ -399,13 +457,12 @@ def get_agent_insights():
             })
 
     # Streak motivation
-    # Calculate streak
     streak = 0
     d = today
     while True:
         ds = d.strftime("%Y-%m-%d")
-        dg = conn.execute("SELECT COUNT(*) as c FROM goals WHERE due_date=?", (ds,)).fetchone()["c"]
-        dd = conn.execute("SELECT COUNT(*) as c FROM completion_log WHERE date=?", (ds,)).fetchone()["c"]
+        dg = conn.execute("SELECT COUNT(*) as c FROM goals WHERE user_id=? AND due_date=?", (user_id, ds)).fetchone()["c"]
+        dd = conn.execute("SELECT COUNT(*) as c FROM completion_log WHERE user_id=? AND date=?", (user_id, ds)).fetchone()["c"]
         if dg > 0 and dd > 0:
             streak += 1
             d -= timedelta(days=1)
@@ -434,8 +491,8 @@ def get_agent_insights():
     # Upcoming goals reminder
     tomorrow = (today + timedelta(days=1)).strftime("%Y-%m-%d")
     upcoming = conn.execute(
-        "SELECT title, due_time FROM goals WHERE due_date=? AND completed=0 ORDER BY due_time LIMIT 3",
-        (tomorrow,)
+        "SELECT title, due_time FROM goals WHERE user_id=? AND due_date=? AND completed=0 ORDER BY due_time LIMIT 3",
+        (user_id, tomorrow)
     ).fetchall()
     if upcoming:
         names = ", ".join([u["title"] for u in upcoming])
@@ -447,7 +504,8 @@ def get_agent_insights():
 
     # Category balance
     cats = conn.execute(
-        "SELECT category, COUNT(*) as c FROM goals WHERE completed=0 GROUP BY category ORDER BY c DESC"
+        "SELECT category, COUNT(*) as c FROM goals WHERE user_id=? AND completed=0 GROUP BY category ORDER BY c DESC",
+        (user_id,)
     ).fetchall()
     if len(cats) >= 2:
         top = cats[0]
